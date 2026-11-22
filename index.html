@@ -72,6 +72,16 @@
   .add { flex: 1; font: inherit; font-weight: 700; padding: 8px; border-radius: 8px; border: 1px dashed var(--accent); background: var(--accent-weak); color: var(--accent); cursor: pointer; }
   .reset { font: inherit; font-size: .8rem; background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer; white-space: nowrap; }
   .hint { font-size: .75rem; color: var(--muted); margin: 8px 2px 0; }
+  .pick-time, #time-picker button, #time-picker select {
+    font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line);
+    border-radius: 6px; padding: 5px 8px; min-height: 32px; cursor: pointer;
+  }
+  #time-picker { color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  #time-picker::backdrop { background: rgb(0 0 0 / 35%); }
+  #time-picker h2 { margin: 0 0 12px; font-size: 1rem; }
+  #picker-fields, .picker-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  #picker-fields select { font-size: 16px; min-height: 44px; }
+  .picker-actions { justify-content: flex-end; margin-top: 14px; }
 </style>
 </head>
 <body>
@@ -81,7 +91,8 @@
       <h1>集結開始時刻計算ツール</h1>
       <span class="lbl">到着</span>
       <input id="arrival" type="text" inputmode="numeric" autocomplete="off" placeholder="21:00:00" value="21:00:00" aria-label="到着したい時刻">
-      <div class="zone" role="group" aria-label="タイムゾーン">
+      <button type="button" class="pick-time" data-picker="arrival" aria-label="到着時刻を選択" aria-haspopup="dialog">▾</button>
+    <div class="zone" role="group" aria-label="タイムゾーン">
         <button type="button" id="zone-utc" aria-pressed="true">UTC</button>
         <button type="button" id="zone-jst" aria-pressed="false" title="日本時間">JST</button>
       </div>
@@ -102,6 +113,12 @@
   <p class="hint">開始時刻 ＝ 到着 − 集結 − 移動。「21:00」は21:00:00として扱います。</p>
 </main>
 
+<dialog id="time-picker" aria-labelledby="picker-heading">
+  <h2 id="picker-heading"></h2>
+  <div id="picker-fields"></div>
+  <div class="picker-actions"><button type="button" id="picker-cancel">キャンセル</button><button type="button" id="picker-apply">決定</button></div>
+</dialog>
+
 <template id="tpl">
   <div class="card participant">
     <div class="r1">
@@ -110,8 +127,8 @@
       <button type="button" class="del" aria-label="この参加者を削除" title="削除">×</button>
     </div>
     <div class="r2">
-      <span class="grp"><span class="k">移動</span><input class="tm" type="number" inputmode="numeric" min="0" step="1" value="0" aria-label="目標までの時間（分）"><span class="u">分</span><input class="ts" type="number" inputmode="numeric" min="0" step="1" value="0" aria-label="目標までの時間（秒）"><span class="u">秒</span></span>
-      <span class="grp"><span class="k">集結</span><input class="rm" type="number" inputmode="numeric" min="0" step="1" value="5" aria-label="集結時間（分）"><span class="u">分</span><input class="rs" type="number" inputmode="numeric" min="0" step="1" value="0" aria-label="集結時間（秒）"><span class="u">秒</span></span>
+      <span class="grp"><span class="k">移動</span><input class="tm" type="number" inputmode="numeric" min="0" step="1" value="0" aria-label="目標までの時間（分）"><span class="u">分</span><input class="ts" type="number" inputmode="numeric" min="0" step="1" value="0" aria-label="目標までの時間（秒）"><span class="u">秒</span><button type="button" class="pick-time" data-picker="ts" aria-label="移動時間を選択" aria-haspopup="dialog">▾</button></span>
+      <span class="grp"><span class="k">集結</span><input class="rm" type="number" inputmode="numeric" min="0" step="1" value="5" aria-label="集結時間（分）"><span class="u">分</span><input class="rs" type="number" inputmode="numeric" min="0" step="1" value="0" aria-label="集結時間（秒）"><span class="u">秒</span><button type="button" class="pick-time" data-picker="rs" aria-label="集結時間を選択" aria-haspopup="dialog">▾</button></span>
     </div>
   </div>
 </template>
@@ -191,6 +208,53 @@
   // ---- 画面 ----
   var $ = function (id) { return document.getElementById(id); };
   var list = $("list"), tpl = $("tpl"), arrivalInput = $("arrival");
+
+  var picker = $("time-picker");
+  var pickerTarget;
+  function addPickerField(unit, count, current) {
+    var label = document.createElement("label");
+    var select = document.createElement("select");
+    for (var i = 0; i < count; i++) select.add(new Option(pad(i), String(i)));
+    if (current >= count) select.add(new Option(String(current), String(current)));
+    select.value = String(current);
+    label.append(select, unit);
+    $("picker-fields").appendChild(label);
+  }
+
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest("button[data-picker]");
+    if (!button) return;
+    pickerTarget = button;
+    $("picker-fields").textContent = "";
+    var kind = button.dataset.picker;
+    if (kind === "arrival") {
+      $("picker-heading").textContent = "到着時刻（" + state.zone + "）";
+      var parts = split(state.arrival, state.zone).text.split(":");
+      addPickerField("時", 24, +parts[0]);
+      addPickerField("分", 60, +parts[1]);
+      addPickerField("秒", 60, +parts[2]);
+    } else {
+      $("picker-heading").textContent = kind === "ts" ? "移動時間" : "集結時間";
+      button.closest(".grp").querySelectorAll("input").forEach(function (input, index) {
+        addPickerField(index === 0 ? "分" : "秒", 60, toNum(input.value).n);
+      });
+    }
+    picker.showModal();
+  });
+  $("picker-cancel").addEventListener("click", function () { picker.close(); });
+  $("picker-apply").addEventListener("click", function () {
+    var fields = $("picker-fields").querySelectorAll("select");
+    if (pickerTarget.dataset.picker === "arrival") {
+      arrivalInput.value = Array.from(fields, function (field) { return pad(+field.value); }).join(":");
+      applyArrivalInput(true);
+    } else {
+      pickerTarget.closest(".grp").querySelectorAll("input").forEach(function (input, index) {
+        input.value = fields[index].value;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    }
+    picker.close();
+  });
 
   function renderArrival() {
     var a = split(state.arrival, state.zone);
